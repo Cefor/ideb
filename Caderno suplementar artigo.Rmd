@@ -1,0 +1,350 @@
+---
+title: 'DESEMPENHO NO IDEB E A INFLUÊNCIA DAS POLÍTICAS PÚBLICAS DE EDUCAÇÃO NO ESTADO DE PERNAMBUCO'
+subtitle: 'Caderno de código'
+author:
+- name: Leandro Carísio Fernandes (1), Bruno Gasparotto Ponne (2), Carlos Rafael de Aguiar Nery (2), Alexandre Lin (2) e Fabiano Peruzzo Schwartz (3)
+  affiliation: (1) Tribunal de Contas da União, (2) Senado Federal e (3) Câmara dos Deputados
+#- name: Leandro Carísio Fernandes
+#  affiliation: Tribunal de Contas da União
+#- name: Bruno Gasparotto Ponne
+#  affiliation: Senado Federal
+#- name: Carlos Rafael de Aguiar Nery
+#  affiliation: Senado Federal
+#- name: Alexandre Lin
+#  affiliation: Senado Federal
+#- name: Fabiano Peruzzo Schwartz
+#  affiliation: Câmara dos Deputados
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(readxl)
+library(tidyr)
+library(dplyr)
+library(ggplot2)
+library(ggpubr)
+
+```
+
+Este é o caderno de códigos para o artigo 'DESEMPENHO NO IDEB E A EFETIVDADE DAS POLÍTICAS PÚBLICAS DE EDUCAÇÃO NO ESTADO DE PERNAMBUCO' contendo toda a análise de dados efetuada.
+
+## Leitura da base de dados
+
+Foram consideras as seguintes bases de dados:
+
+- Microdados
+- SAEB
+- AFD (Adequação da formação docente)
+- ATU (Média de alunos por turma)
+- IRD (Índice de regularidade docente)
+- INSE (Indicador socioeconômico)
+
+Como são muitos arquivos e os arquivos são grandes, foi feito um merge de todas as bases de dados para os anos de 2017, 2019 e 2021 e filtrado apenas os dados referentes ao estado de Pernambuco. Esse dataset foi salvo no arquivo microdados_e_indicadores.rda, que acompanha este caderno.
+
+Foram feitas algumas adequações nos nomes de algumas variáveis em relação aos nomes originais. As alterações relevantes para o modelo proposto são:
+
+- CO_ENTIDADE: Identifica a escola
+- NU_ANO_CENSO: Identifica o ano
+- NOTA_SAEB: Identifica a nota do SAEB
+- As variáveis que se referem as bases de indicadores iniciam com o prefixo do indicador (AFD, ATU, IRD e INSE)
+
+```{r}
+# Carrega a base de dados já integrada com o censo, microdados e indicadores
+load('microdados_e_indicadores.rda')
+
+# Remove o ano de 2017, pois a análise se dá apenas nos dados de 2019 e 2021
+df <- df[df$NU_ANO_CENSO != 2017, ]
+# Remove os registros com IRD nulos, pois este campo é usado em um modelo
+df <- df[!is.na(df$IRD), ]
+
+# Definição das variáveis derivadas
+df$PROP_INTEGRAL <- df$QT_MAT_MED_INT/df$QT_MAT_MED
+df$PROP_DESKTOP_ALUNO <- df$QT_DESKTOP_ALUNO/df$QT_MAT_MED
+df$PROP_PROF_PSICOLOGO <- df$QT_PROF_PSICOLOGO/df$QT_MAT_MED
+df$PROP_SALA_CLIM <- df$QT_SALAS_UTILIZA_CLIMATIZADAS/df$QT_SALAS_UTILIZADAS
+```
+
+## Total de observações
+
+```{r}
+total_observacoes <- nrow(df)
+total_escolas <- length(unique(df$CO_ENTIDADE))
+observacoes_2019 <- sum(df$NU_ANO_CENSO == 2019)
+observacoes_2021 <- sum(df$NU_ANO_CENSO == 2021)
+```
+
+A base de dados considerada possui `r total_observacoes` observações referentes a `r total_escolas` escolas no estado de Pernambuco. Há `r observacoes_2019` observações no ano de 2019 e `r observacoes_2021` em 2021.
+
+## Evolução do Ideb e Saeb ao longo do tempo - Prenambuco vs Restante do Brasil (Figura 01)
+
+```{r}
+dados_temporal <- read_excel("ideb_temporal.xlsx")
+
+# Preparação dos dados para plot com o pacote ggplot2
+
+# Ideb
+ideb <- dados_temporal[c(1, seq(11,19))]
+
+ideb_longer <- pivot_longer(ideb, 
+                            cols = starts_with("IDEB_"), 
+                            names_to = "ano", 
+                            names_prefix = "IDEB_", 
+                            values_to = "ideb")
+
+ideb_longer$isPE <- if_else(ideb_longer$UF == "Pernambuco", "Pernambuco", "Outras UFs")
+
+ideb_brasil <- ideb_longer %>%
+  group_by(ano, isPE) %>%
+  summarize(ideb = mean(ideb))
+
+# Saeb (nota padronizada)
+
+np <- dados_temporal[1:10]
+
+np_longer <- pivot_longer(np, 
+                            cols = starts_with("NP_"), 
+                            names_to = "ano", 
+                            names_prefix = "NP_", 
+                            values_to = "np")
+
+np_longer$isPE <- if_else(np_longer$UF == "Pernambuco", "Pernambuco", "Outras UFs")
+
+np_brasil <- np_longer %>%
+  group_by(ano, isPE) %>%
+  summarize(np = mean(np))
+
+# Ideb + Saeb em único data frame
+
+df1 <- rename(ideb_brasil, valor = ideb)
+df1$metrica <- "Ideb"
+
+df2 <- rename(np_brasil, valor = np)
+df2$metrica <- "Saeb"
+
+dados_completo <- rbind(df1, df2)
+
+# Plot
+
+ggplot(data = dados_completo, aes(x= as.numeric(ano), y = valor, color=interaction(metrica, isPE, sep=' - '), linetype=interaction(metrica, isPE, sep=' - ')))+
+  geom_line(size = 1)+
+  xlab("Ano")+
+  ylab("Ideb/Saeb")+
+  scale_color_manual(name = "", values = c("#2166ac", "#2166ac", "#E84D43", "#E84D43"))+
+  scale_linetype_manual(name='', values=c('dotdash', 'solid', 'dotdash', 'solid'))+
+  ylim(3, 5)+
+  theme_bw()+
+  theme(panel.grid.major = element_blank(),
+        legend.position="bottom")
+
+# Salvando o arquivo png
+
+ggsave(filename = "figura01.png", width = 16, height = 10, units = "cm")
+
+
+
+```
+
+## Gráfico da relação entre as variáveis explicativas (Figura 02)
+
+```{r}
+# Ajuste dos valores das variáveis binárias:
+
+fig_02 <- df
+
+fig_02$IN_ORGAO_GREMIO_ESTUDANTIL[fig_02$IN_ORGAO_GREMIO_ESTUDANTIL == 0] <- "não"
+fig_02$IN_ORGAO_GREMIO_ESTUDANTIL[fig_02$IN_ORGAO_GREMIO_ESTUDANTIL == 1] <- "sim"
+fig_02$IN_QUADRA_ESPORTES_COBERTA[fig_02$IN_QUADRA_ESPORTES_COBERTA == 0] <- "não"
+fig_02$IN_QUADRA_ESPORTES_COBERTA[fig_02$IN_QUADRA_ESPORTES_COBERTA == 1] <- "sim"
+
+# Gráficos plotados individualmente
+
+density_01 <- ggplot(data = fig_02, aes(x=NOTA_SAEB, color = NU_ANO_CENSO, fill = NU_ANO_CENSO))+
+  geom_density(alpha = .3)+
+  xlab("Nota Saeb")+
+  ylab("Densidade")+
+  ggtitle("Ano")+
+  scale_color_manual(name = "", values = c("#E84D43", "#2166ac"))+
+  scale_fill_manual(name = "", values = c("#E84D43", "#2166ac"))+
+  theme_bw()+
+  theme(plot.title = element_text(size=11),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank())
+
+density_02 <- ggplot(data = fig_02, aes(x=NOTA_SAEB, color = as.factor(IN_QUADRA_ESPORTES_COBERTA), 
+                      fill = as.factor(IN_QUADRA_ESPORTES_COBERTA)))+
+  geom_density(alpha = .3)+
+  xlab("Nota Saeb")+
+  ylab("Densidade")+
+  ggtitle("Quadra de Esportes")+
+  scale_color_manual(name = "", values = c("#E84D43", "#2166ac"))+
+  scale_fill_manual(name = "", values = c("#E84D43", "#2166ac"))+
+  theme_bw()+
+  theme(plot.title = element_text(size=11),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank())
+
+density_03 <- ggplot(data = fig_02, aes(x=NOTA_SAEB, color = as.factor(IN_ORGAO_GREMIO_ESTUDANTIL), 
+                      fill = as.factor(IN_ORGAO_GREMIO_ESTUDANTIL)))+
+  geom_density(alpha = .3)+
+  xlab("Nota Saeb")+
+  ylab("Densidade")+
+  ggtitle("Grêmio Estudantil")+
+  scale_color_manual(name = "", values = c("#E84D43", "#2166ac"))+
+  scale_fill_manual(name = "", values = c("#E84D43", "#2166ac"))+
+  theme_bw()+
+  theme(plot.title = element_text(size=11),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank())
+
+scatter_01 <- ggplot(data = fig_02, aes(x = PROP_SALA_CLIM, 
+                                    y = NOTA_SAEB))+
+  geom_point(color = "#E84D43", alpha = .5)+
+  geom_smooth(se=FALSE, color = "#2166ac")+
+  xlab("% de Salas Climatizadas")+
+  ylab("Nota Saeb")+
+  theme_bw()+
+  theme(panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank())
+
+scatter_02 <- ggplot(data = fig_02, aes(x = PROP_INTEGRAL, 
+                                    y = NOTA_SAEB))+
+  geom_point(color = "#E84D43", alpha = .5)+
+  geom_smooth(se=FALSE, color = "#2166ac")+
+  xlab("% matrículas em tempo integral")+
+  ylab("Nota Saeb")+
+  theme_bw()+
+  theme(panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank())
+
+scatter_03 <- ggplot(data = fig_02, aes(x = PROP_PROF_PSICOLOGO, 
+                                    y = NOTA_SAEB))+
+  geom_point(color = "#E84D43", alpha = .5)+
+  geom_smooth(se=FALSE, color = "#2166ac")+
+  xlab("Psicólogos por aluno ")+
+  ylab("Nota Saeb")+
+  theme_bw()+
+  theme(panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank())
+
+scatter_04 <- ggplot(data = fig_02, aes(x = PROP_DESKTOP_ALUNO, 
+                                    y = NOTA_SAEB))+
+  geom_point(color = "#E84D43", alpha = .5)+
+  geom_smooth(se=FALSE, color = "#2166ac")+
+  xlab("Computadores por aluno ")+
+  ylab("Nota Saeb")+
+  theme_bw()+
+  theme(panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank())
+
+scatter_05 <- ggplot(data = fig_02, aes(x = IRD, 
+                                    y = NOTA_SAEB))+
+  geom_point(color = "#E84D43", alpha = .5)+
+  geom_smooth(se=FALSE, color = "#2166ac")+
+  xlab("Índice de Regularidade Docente")+
+  ylab("Nota Saeb")+
+  theme_bw()+
+  theme(panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank())
+
+scatter_06 <- ggplot(data = fig_02, aes(x = INSE_VALOR_ABSOLUTO, 
+                                    y = NOTA_SAEB))+
+  geom_point(color = "#E84D43", alpha = .5)+
+  geom_smooth(se=FALSE, color = "#2166ac")+
+  xlab("Índice Socioeconômico")+
+  ylab("Nota Saeb")+
+  theme_bw()+
+  theme(panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank())
+
+# Formatação de todos os gráficos em uma única figura
+
+ggarrange(density_01, 
+          density_02, 
+          density_03, 
+          scatter_01,
+          scatter_02,
+          scatter_03,
+          scatter_04,
+          scatter_05,
+          scatter_06,
+          ncol = 3, 
+          nrow = 3, 
+          legend = "bottom")
+
+ggsave(filename = "figura02.png", width = 19, height = 23, units = "cm")
+```
+
+## Definição dos modelos
+
+O artigo define dois modelos, representados aqui pelas variáveis modelo_1 e modelo_2:
+
+```{r}
+modelo_1 <- lm(NOTA_SAEB ~ NU_ANO_CENSO + INSE_VALOR_ABSOLUTO + PROP_INTEGRAL + PROP_DESKTOP_ALUNO + PROP_SALA_CLIM + PROP_PROF_PSICOLOGO + IRD +  IN_ORGAO_GREMIO_ESTUDANTIL + IN_QUADRA_ESPORTES_COBERTA, df)
+summary(modelo_1)
+
+modelo_2 <- lm(NOTA_SAEB ~ NU_ANO_CENSO + INSE_VALOR_ABSOLUTO + PROP_INTEGRAL + PROP_DESKTOP_ALUNO, df)
+summary(modelo_2)
+```
+A Tabela 1 do artigo foi construída considerando os coeficientes e p-valores desses modelos.
+
+## Sumário dos dados
+
+```{r}
+nota_saeb <- df$NOTA_SAEB
+
+nota_saeb_estimada_modelo_1 <- modelo_1$fitted.values
+
+nota_saeb_estimada_modelo_2 <- modelo_2$fitted.values
+
+summary(nota_saeb)
+summary(nota_saeb_estimada_modelo_1)
+summary(nota_saeb_estimada_modelo_2)
+
+ggplot()+
+  geom_boxplot(aes(x='Saeb', y=nota_saeb))+
+  geom_boxplot(aes(x='Estimativas do Modelo 1', y=nota_saeb_estimada_modelo_1))+
+  geom_boxplot(aes(x='Estimativas do Modelo 2', y=nota_saeb_estimada_modelo_2))+
+  scale_x_discrete(name='', limits=c('Saeb', 'Estimativas do Modelo 1', 'Estimativas do Modelo 2'))+
+  scale_y_continuous(name='Saeb')+
+  theme_bw()+
+  theme(plot.caption=element_text(size=8),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank())
+
+ggsave(filename = "figura03.png", width = 14, height = 8, units = "cm")
+
+```
+Quantidade de estimativas do modelo 1 maiores que a maior estimativa do modelo 2 e quantidades de estimativas maiores do que a nota 6.
+
+```{r}
+sum(modelo_1$fitted.values > max(modelo_2$fitted.values))
+
+sum(modelo_1$fitted.values > 6)
+
+sum(modelo_2$fitted.values > 6)
+
+sum(df$NOTA_SAEB > 6)
+```
+
+## Informações de escolas sem psicólogos
+
+O artigo apresentou também informações sobre observações relacionadas a existência ou não de psicólogos na escola:
+
+```{r}
+SAEB_ESCOLA_SEM_PSICOLOGO <- df$NOTA_SAEB[df$PROP_PROF_PSICOLOGO == 0]
+SAEB_ESCOLA_COM_PSICOLOGO <- df$NOTA_SAEB[df$PROP_PROF_PSICOLOGO > 0]
+
+total_escolas_sem_psicologo <- length(SAEB_ESCOLA_SEM_PSICOLOGO)
+media_saeb_escola_sem_psicologo <- mean(SAEB_ESCOLA_SEM_PSICOLOGO)
+sd_saeb_escola_sem_psicologo <- sd(SAEB_ESCOLA_SEM_PSICOLOGO)
+
+total_escolas_com_psicologo <- length(SAEB_ESCOLA_COM_PSICOLOGO)
+media_saeb_escola_com_psicologo <- mean(SAEB_ESCOLA_COM_PSICOLOGO)
+sd_saeb_escola_com_psicologo <- sd(SAEB_ESCOLA_COM_PSICOLOGO)
+```
+
+No total, são `r total_escolas_sem_psicologo` sem nenhum psicólogo. A nota do SAEB nessas escolas possui média `r media_saeb_escola_sem_psicologo` e desvio padrão de `r sd_saeb_escola_sem_psicologo` pontos.
+
+São `r total_escolas_com_psicologo` escolas com pelo menos um psicólogo. A nota do SAEB nessas escolas possui média de `r media_saeb_escola_com_psicologo` e desvio padrão de `r sd_saeb_escola_sem_psicologo` pontos.
