@@ -8,6 +8,6 @@ O presente estudo analisa os possíveis fatores que impulsionaram o desempenho d
 
 ## Grupo de Pesquisa
 
-Pesquisa realizada no âmbito do grupo "Ciência de Dados Aplicada ao Estudo do Poder Legislativo: abordagem computacional e métodos de análise"[http://dgp.cnpq.br/dgp/espelhogrupo/9712095383739020]
+Pesquisa realizada no âmbito do grupo [Ciência de Dados Aplicada ao Estudo do Poder Legislativo: abordagem computacional e métodos de análise](http://dgp.cnpq.br/dgp/espelhogrupo/9712095383739020)
 
 ## Link para o artigo 
